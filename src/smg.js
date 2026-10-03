@@ -106,19 +106,18 @@ export class SMG {
  async nextPage(before,kind) {
   this.checkTime();
   if(kind==='holdings'&&this.diagnostics)this.diagnostics.step='locate_holdings_pagination';
-  const handle=await this.page.evaluateHandle(()=>{
+  const enabled=await this.page.evaluate(()=>{
    const arrows=[...document.querySelectorAll('.google-visualization-table-page-next')];
    if(arrows.length!==1)throw Error('Pagination control missing or ambiguous');
    const button=arrows[0].closest('[role="button"]');
    if(!button)throw Error('Pagination control missing or ambiguous');
-   if(button.getAttribute('aria-disabled')==='true'||button.classList.contains('goog-custom-button-disabled'))return null;
-   return button;
+   return button.getAttribute('aria-disabled')!=='true'&&!button.classList.contains('goog-custom-button-disabled');
   });
-  if(kind==='holdings'&&this.diagnostics)this.diagnostics.step='resolve_holdings_pagination_handle';
-  const next=handle.asElement();
-  if(!next){await handle.dispose();return false;}
+  if(!enabled)return false;
   if(kind==='holdings'&&this.diagnostics)this.diagnostics.step='click_holdings_next';
-  try {await next.click();} finally {await handle.dispose();}
+  // Google Charts replaces its controls while rendering. Resolve the current
+  // enabled button at action time rather than keeping a detached ElementHandle.
+  await this.page.locator('[role="button"]:not([aria-disabled="true"]):not(.goog-custom-button-disabled):has(.google-visualization-table-page-next)').setTimeout(10000).click();
   if(kind==='holdings'&&this.diagnostics)this.diagnostics.step='wait_holdings_page_change';
   await this.page.waitForFunction((before,kind)=>{
    const t=[...document.querySelectorAll('table')].find(t=>t.innerText.includes(kind==='holdings'?'Initial Trade Date':'Confirmation'));
