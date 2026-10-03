@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {money,aggregate,plan,signal,tradingWindow,snapshotDateAllowed,verifyPreview} from '../src/core.js';
+import {money,aggregate,plan,signal,tradingWindow,snapshotDateAllowed,latestSessionDate,verifyPreview} from '../src/core.js';
 const account={equity:100000,buyingPower:50000,cash:50000,quoteDate:'2026-10-02'};
 const lot=(symbol,side,shares,cost,price)=>({symbol,side,shares,cost,price,asset:'stock'});
 test('parses negative cash and parentheses',()=>{assert.equal(money('-$11,807.46'),-11807.46);assert.equal(money('($9,470.20)'),-9470.20);assert.throws(()=>money('NA'));});
@@ -26,4 +26,18 @@ test('next UTC date permitted only in manual after-hours diagnostics',()=>{
  assert.equal(snapshotDateAllowed('2026-10-01',now,true),false);
  assert.equal(snapshotDateAllowed('2026-10-04',now,true),false);
  assert.equal(snapshotDateAllowed('2026-10-03',new Date('2026-10-02T18:30:00Z'),true),false);
+});
+
+test('unfunded short cover is rejected even though it closes a position',()=>{
+ const order={symbol:'IBRX',action:'Short Cover',quantity:1000,referencePrice:10.285};
+ const preview={Action:'Short Cover',Ticker:'IBRX','# Of Shares':'1000','Order Type':'Market Order','Last Known SMG Price Date':'10/02/2026','Last Known SMG Price*':'10.29','Estimated Buying Power After Trade':'($10,279.72)'};
+ assert.throws(()=>verifyPreview(order,preview,'2026-10-02'),/Insufficient buying power/);
+ assert.equal(verifyPreview(order,{...preview,'Estimated Buying Power After Trade':'$1.00'},'2026-10-02'),true);
+});
+
+test('weekend and premarket diagnostics use the latest trading session without enabling execution',()=>{
+ assert.equal(latestSessionDate(new Date('2026-10-03T15:45:00Z')),'2026-10-02');
+ assert.equal(latestSessionDate(new Date('2026-10-05T12:00:00Z')),'2026-10-02');
+ assert.equal(latestSessionDate(new Date('2026-11-26T19:00:00Z')),'2026-11-25');
+ assert.equal(tradingWindow(new Date('2026-10-03T15:45:00Z')).allowed,false);
 });

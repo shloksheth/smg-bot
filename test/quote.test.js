@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {SMG} from '../src/smg.js';
+import {SMG,companyIdentity} from '../src/smg.js';
 
 test('quote reads direct value cell instead of nested last-child label',async()=>{
  const row=(label,value)=>({querySelector:selector=>({textContent:label}),lastElementChild:{tagName:'P',textContent:value}});
@@ -18,4 +18,10 @@ test('quote reads direct value cell instead of nested last-child label',async()=
  }};
  const smg=new SMG(page,Date.now()+10000);smg.selectStock=async()=>{smg.quoteDiagnostics={};};
  assert.deepEqual(await smg.quote('SPY','2026-10-02'),{price:769.64,previous:763.99,date:'2026-10-02',marketCap:817799340000});
+});
+
+test('security suffixes match the same company without accepting another company',()=>{
+ assert.equal(companyIdentity('State Street SPDR S&P 500 ETF Trust'),companyIdentity('STATE STREET SPDR S&P 500 ETF TRUST UNIT'));
+ assert.equal(companyIdentity('Nike, Inc.'),companyIdentity('NIKE INC COMMON STOCK'));
+ assert.notEqual(companyIdentity('Dell Technologies Inc.'),companyIdentity('STATE STREET SPDR S&P 500 ETF TRUST UNIT'));
 });
