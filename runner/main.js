@@ -3,6 +3,7 @@ import {writeFile} from 'node:fs/promises';
 import {run} from '../src/worker.js';
 import {localClock,tradingWindow} from '../src/core.js';
 import {RemoteD1} from './d1.js';
+import {publicReport} from './report.js';
 const action=process.env.RUN_ACTION||'observe',now=new Date();
 const manual=process.env.GITHUB_EVENT_NAME!=='schedule';
 const env={...process.env,MODE:process.env.BOT_MODE||'observe',ENABLED:process.env.BOT_ENABLED||'false',GAME_END:'2026-12-04',WATCHLIST:'SPY,COIN,CRML,DELL,IBRX,IRON,MRVL,MU,NKE,NVDA,ORCL'};
@@ -25,8 +26,9 @@ try {
   }
   report=await run(env,manual,action==='preview'?'preview':undefined,()=>puppeteer.launch({executablePath:process.env.CHROME_PATH||'/usr/bin/google-chrome',headless:true}));
  }
- await writeFile('report.json',JSON.stringify(report,null,2));
- console.log(JSON.stringify(report,null,2));
+ const diagnostic=publicReport(report);
+ await writeFile('report.json',JSON.stringify(diagnostic,null,2));
+ console.log(JSON.stringify(diagnostic,null,2));
  if(report.status==='failed')process.exitCode=1;
 } catch {
  // Never print raw browser/network exceptions or headers into workflow logs.
