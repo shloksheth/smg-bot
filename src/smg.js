@@ -1,5 +1,8 @@
 import {money,isoDate,aggregate,verifyPreview} from './core.js';
 const ROOT='https://www.stockmarketgame.org';
+export function companyIdentity(value) {
+ return value.toUpperCase().replace(/\b(COMMON STOCK|ORDINARY SHARES|UNIT|UNITS)\s*$/,'').replace(/[^A-Z0-9]/g,'');
+}
 export class SMG {
  constructor(page,deadline) {this.page=page;this.deadline=deadline;this.diagnostics={};}
  checkTime() {if(Date.now()>this.deadline)throw Error('Browser runtime budget reached');}
@@ -171,6 +174,8 @@ export class SMG {
   await this.goto('/enterstock.htm');
   this.quoteDiagnostics.step='find_symbol_input';
   await this.page.waitForSelector('#SymbolName',{visible:true,timeout:10000});
+  await this.page.click('#SymbolName',{clickCount:3});
+  await this.page.keyboard.press('Backspace');
   await this.page.type('#SymbolName',symbol);
   this.quoteDiagnostics.step='wait_lookup_results';
   await this.page.waitForFunction(s=>[...document.querySelectorAll('p')].some(e=>e.textContent.trim()===s),{timeout:10000},symbol);
@@ -181,10 +186,10 @@ export class SMG {
   await this.clickText(symbol,'p');
   // Wait until the input retains the selected symbol and the lookup results close.
   this.quoteDiagnostics.step='wait_lookup_closed';
-  await this.page.waitForFunction(s=>document.querySelector('#SymbolName')?.value.toUpperCase().startsWith(s)&&![...document.querySelectorAll('p')].some(e=>e.textContent.trim()===s),{timeout:10000},symbol);
+  await this.page.waitForFunction(s=>document.querySelector('#SymbolName')?.value.toUpperCase().split(/[\s(]/)[0]===s&&![...document.querySelectorAll('p')].some(e=>e.textContent.trim()===s),{timeout:10000},symbol);
   this.quoteDiagnostics.step='verify_selected_company';
   this.quoteDiagnostics.companyCandidates=await this.page.evaluate(()=>[...document.querySelectorAll('p')].map(e=>e.textContent.trim()).filter(s=>s.length<160&&/\b(INC|CORP|CORPORATION|TRUST|LTD|PLC|COMPANY|HOLDINGS)\b/i.test(s)).slice(0,8));
-  await this.page.waitForFunction(c=>{const n=s=>s.toUpperCase().replace(/[^A-Z0-9]/g,'');return [...document.querySelectorAll('p')].some(e=>n(e.textContent)===n(c));},{timeout:10000},company);
+  await this.page.waitForFunction(c=>{const n=s=>s.toUpperCase().replace(/\b(COMMON STOCK|ORDINARY SHARES|UNIT|UNITS)\s*$/,'').replace(/[^A-Z0-9]/g,'');return [...document.querySelectorAll('p')].some(e=>n(e.textContent)===n(c));},{timeout:10000},company);
   await this.guard();
  }
  async quote(symbol,expectedDate) {

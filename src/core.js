@@ -40,6 +40,14 @@ export function snapshotDateAllowed(snapshotDate,now,diagnostic=false) {
  return snapshotDate===clock.date||Boolean(diagnostic&&clock.minute>=960&&utcDate>clock.date&&snapshotDate===utcDate);
 }
 
+export function latestSessionDate(now) {
+ const c=localClock(now),d=new Date(c.date+'T12:00:00Z');
+ if(c.minute<570)d.setUTCDate(d.getUTCDate()-1);
+ const holidays=new Set(['2026-01-01','2026-01-19','2026-02-16','2026-04-03','2026-05-25','2026-06-19','2026-07-03','2026-09-07','2026-11-26','2026-12-25']);
+ while([0,6].includes(d.getUTCDay())||holidays.has(d.toISOString().slice(0,10)))d.setUTCDate(d.getUTCDate()-1);
+ return d.toISOString().slice(0,10);
+}
+
 export function aggregate(lots) {
  const out=new Map();
  for(const l of lots) {
@@ -59,11 +67,12 @@ export function signal(prices, cfg=DEFAULTS) {
  const last=prices.at(-1), slow=prices.slice(-20).reduce((a,b)=>a+b,0)/20;
  const fast=prices.slice(-5).reduce((a,b)=>a+b,0)/5;
  const momentum=last/prices.at(-21)-1;
+ const weekly=last/prices.at(-6)-1;
  const daily=prices.slice(-20).map((p,i)=>p/prices[prices.length-21+i]-1);
  const mean=daily.reduce((a,b)=>a+b,0)/daily.length;
  const vol=Math.sqrt(daily.reduce((a,b)=>a+(b-mean)**2,0)/daily.length);
  // Thresholds are configurable engineering defaults, not optimized promises.
- return {side:last>slow&&fast>slow&&momentum>cfg.entryMomentum?'Long':last<slow&&fast<slow&&momentum<-cfg.entryMomentum?'Short':null,momentum,vol};
+ return {side:last>slow&&fast>slow&&momentum>cfg.entryMomentum&&weekly>0?'Long':last<slow&&fast<slow&&momentum<-cfg.entryMomentum&&weekly<0?'Short':null,momentum,weekly,vol};
 }
 
 export function plan(account,lots,pending,quotes,histories,cfg=DEFAULTS) {
@@ -126,8 +135,8 @@ export function verifyPreview(order, preview, currentDate, remainingBudget=Infin
  if(isoDate(preview['Last Known SMG Price Date'])!==currentDate) throw Error('Stale trade preview');
  const price=money(preview['Last Known SMG Price*']);
  if(!(price>0)||Math.abs(price/order.referencePrice-1)>.05) throw Error('Trade preview price discrepancy');
+ if(['Buy','Short Sell','Short Cover'].includes(order.action)&&money(preview['Estimated Buying Power After Trade'])<0)throw Error('Insufficient buying power in preview');
  if(['Buy','Short Sell'].includes(order.action)) {
-  if(money(preview['Estimated Buying Power After Trade'])<0) throw Error('Insufficient buying power in preview');
   if(price*order.quantity*1.04+5>remainingBudget) throw Error('Preview exceeds reserved opening budget');
  }
  return true;

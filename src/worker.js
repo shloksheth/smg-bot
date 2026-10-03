@@ -1,7 +1,7 @@
 import puppeteer from '@cloudflare/puppeteer';
 import {SMG} from './smg.js';
-import {marketData} from './market-data.js';
-import {money,isoDate,localClock,tradingWindow,snapshotDateAllowed,plan,aggregate} from './core.js';
+import {marketData,trendSummary} from './market-data.js';
+import {money,isoDate,localClock,tradingWindow,snapshotDateAllowed,latestSessionDate,plan,aggregate} from './core.js';
 
 async function pause(env) {await env.DB.prepare("UPDATE settings SET value='true' WHERE key='paused'").run();}
 function response(body,status=200) {return Response.json(body,{status,headers:{'Cache-Control':'no-store'}});}
@@ -13,11 +13,12 @@ async function authorized(request,env) {
  let diff=0;for(let i=0;i<a.length;i++)diff|=a[i]^b[i];return diff===0;
 }
 
-export async function run(env,manual=false,modeOverride,launchBrowser=puppeteer.launch.bind(puppeteer)) {
- const now=new Date();
+export async function run(env,manual=false,modeOverride,launchBrowser=puppeteer.launch.bind(puppeteer),clockNow=()=>new Date()) {
+ const now=clockNow();
  if(now.getUTCFullYear()>2026)return {status:'game_ended'};
  const clock=localClock(now),window=tradingWindow(now,env.GAME_END);
  const mode=modeOverride||env.MODE||'observe';
+ const quoteDate=manual&&mode!=='live'?latestSessionDate(now):clock.date;
  if(modeOverride&&(!manual||modeOverride!=='preview'))throw Error('Invalid diagnostic mode');
  if(!['observe','preview','live'].includes(mode))throw Error('Invalid mode');
  if(!manual&&env.ENABLED!=='true')return {status:'disabled'};
@@ -39,9 +40,9 @@ export async function run(env,manual=false,modeOverride,launchBrowser=puppeteer.
   await smg.login(env.SMG_USERNAME,env.SMG_PASSWORD);
   report.stage='account_summary';
   const raw=await smg.summary();
-  report.snapshotDates={account:raw.date,expected:clock.date,gameEnd:raw.end};
+  report.snapshotDates={account:raw.date,expected:clock.date,quoteDate,gameEnd:raw.end};
   if(isoDate(raw.end)!==env.GAME_END)throw Error('Game deadline changed');
-  const account={equity:money(raw.equity),cash:money(raw.cash),buyingPower:money(raw.buyingPower),date:isoDate(raw.date),quoteDate:clock.date};
+  const account={equity:money(raw.equity),cash:money(raw.cash),buyingPower:money(raw.buyingPower),date:isoDate(raw.date),quoteDate};
   if(!snapshotDateAllowed(account.date,now,manual&&mode!=='live'))throw Error('Account snapshot date does not match trading date');
   if(account.date!==clock.date)report.warnings.push('Game displays the next UTC date; permitted only for this manual after-hours diagnostic. Price checks still use the New York trading date.');
   report.stage='holdings';const lots=await smg.holdings(raw);
@@ -65,9 +66,9 @@ export async function run(env,manual=false,modeOverride,launchBrowser=puppeteer.
    report.stage=`quote:${symbol}`;
    smg.checkTime();
    try {
-    const q=await smg.quote(symbol,clock.date);
-    report.quoteChecks[symbol]={date:q.date,price:q.price,status:q.date===clock.date?'current':'stale'};
-    if(q.date!==clock.date)throw Error('Stale quote');
+    const q=await smg.quote(symbol,quoteDate);
+    report.quoteChecks[symbol]={date:q.date,price:q.price,status:q.date===quoteDate?'current':'stale'};
+    if(q.date!==quoteDate)throw Error('Stale quote');
     quotes[symbol]=q;
     await env.DB.prepare('INSERT INTO history(symbol,date,price) VALUES(?,?,?) ON CONFLICT(symbol,date) DO UPDATE SET price=excluded.price').bind(symbol,q.date,q.price).run();
    } catch (error) {
@@ -75,17 +76,20 @@ export async function run(env,manual=false,modeOverride,launchBrowser=puppeteer.
     if(!report.quoteChecks[symbol])report.quoteChecks[symbol]={status:'unavailable',reason:error?.name==='TimeoutError'?'Lookup timed out':'Unclassified quote reader failure',diagnostics:smg.quoteDiagnostics};
     report.warnings.push(`${symbol}: quote unavailable, no entry`);
    }
-   const rows=await env.DB.prepare('SELECT price FROM history WHERE symbol=? AND date<=? ORDER BY date DESC LIMIT 64').bind(symbol,clock.date).all();
+   const rows=await env.DB.prepare('SELECT price FROM history WHERE symbol=? AND date<=? ORDER BY date DESC LIMIT 64').bind(symbol,quoteDate).all();
    histories[symbol]=rows.results.map(r=>r.price).reverse();
   }
   report.stage='external_market_data';
   let external;
-  try {external=await marketData(env,symbols,new Date());}
+  try {external=await marketData({...env,MARKET_DATA_AS_OF_DATE:quoteDate},symbols,clockNow());}
   catch {report.warnings.push('External market data unavailable; using verified game data only');}
+  report.marketAnalysis={};
   report.externalDataConfigured=Boolean(env.MARKET_DATA_KEY&&env.MARKET_DATA_SECRET);
   for(const symbol of symbols) {
    const data=external?.[symbol],game=quotes[symbol];
    if(!data)continue;
+   const price=data.quote?.price||game?.price;
+   report.marketAnalysis[symbol]={...trendSummary(data.history,price),source:'alpaca_iex',intraday:data.intraday||[],dailyCloses:data.history};
    if(game&&data.quote&&Math.abs(data.quote.price/game.price-1)>.05) {
     delete quotes[symbol];report.quoteChecks[symbol]={status:'blocked',reason:'External and game prices differ by more than 5%'};continue;
    }
@@ -105,17 +109,26 @@ export async function run(env,manual=false,modeOverride,launchBrowser=puppeteer.
   report.orders=decision.orders.filter(o=>quotes[o.symbol]);report.warnings.push(...decision.warnings);
   for(const order of report.blockedOrders)report.warnings.push(`${order.symbol}: proposed trade blocked without a current verified price`);
   let openingBudget=Math.max(0,account.buyingPower-.10*account.equity);
+  const verifiedOrders=[];
   if(mode!=='observe') for(const order of report.orders) {
    report.stage=`preview:${order.symbol}`;
    smg.checkTime();
-   if(!quotes[order.symbol]||quotes[order.symbol].date!==clock.date)throw Error('No current verified quote for intended trade');
+   if(!quotes[order.symbol]||quotes[order.symbol].date!==quoteDate)throw Error('No current verified quote for intended trade');
    // Re-read pending orders before every submission, including manual orders.
    const before=await smg.pending();
    if(before.some(p=>p.symbol===order.symbol))throw Error('New pending order conflicts with decision');
-   const preview=await smg.preview(order,clock.date,openingBudget);
+   let preview;
+   try {preview=await smg.preview(order,quoteDate,openingBudget);}
+   catch(error) {
+    if(error.message!=='Insufficient buying power in preview')throw error;
+    report.blockedOrders.push({...order,blockedReason:error.message});
+    report.warnings.push(`${order.symbol}: game preview shows insufficient buying power; order skipped`);
+    continue;
+   }
    order.preview=preview;
+   verifiedOrders.push(order);
    if(mode==='preview')continue;
-   if(!tradingWindow(new Date(),env.GAME_END).allowed)throw Error('Execution window ended before submission');
+   if(!tradingWindow(clockNow(),env.GAME_END).allowed)throw Error('Execution window ended before submission');
    const orderId=`${id}:${order.symbol}:${order.action}`;
    await env.DB.prepare('INSERT INTO orders(id,run_id,symbol,action,quantity,status,baseline_shares,created) VALUES(?,?,?,?,?,?,?,?)').bind(orderId,id,order.symbol,order.action,order.quantity,'submitting',positions.find(p=>p.symbol===order.symbol)?.shares||0,new Date().toISOString()).run();
    // Never retry after the submit call; an exception may mean it already succeeded.
@@ -133,7 +146,8 @@ export async function run(env,manual=false,modeOverride,launchBrowser=puppeteer.
     await pause(env);throw Error('Submission outcome unknown; paused without retry');
    }
   }
-  report.status=mode==='live'?'submitted_pending_verification':mode==='preview'?(report.orders.length?'previews_verified':'no_eligible_previews'):'observed';
+  if(mode!=='observe')report.orders=verifiedOrders;
+  report.status=mode==='live'?(report.orders.length?'submitted_pending_verification':'no_orders_submitted'):mode==='preview'?(report.orders.length?'previews_verified':'no_eligible_previews'):'observed';
  } catch (error) {
   // Do not log raw browser exceptions: a URL or protocol error can include secrets.
   report.status='failed';report.warnings.push('Run failed safely. Review account and configuration before retrying.');

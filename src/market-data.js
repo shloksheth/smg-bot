@@ -11,11 +11,11 @@ export function priorCloses(bars,today) {
  const dates=new Map();
  for(const b of bars||[]) {
   const date=String(b.t||'').slice(0,10);
-  if(!/^2026-\d{2}-\d{2}$/.test(date)||date>=today||!Number.isFinite(b.c)||b.c<=0)continue;
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||date>=today||!Number.isFinite(b.c)||b.c<=0)continue;
   if(dates.has(date))throw Error('Duplicate external daily bar');
   dates.set(date,b.c);
  }
- return [...dates].sort(([a],[b])=>a.localeCompare(b)).slice(-64).map(([,price])=>price);
+ return [...dates].sort(([a],[b])=>a.localeCompare(b)).slice(-128).map(([,price])=>price);
 }
 export async function marketData(env,symbols,now=new Date(),fetcher=fetch) {
  if(!env.MARKET_DATA_KEY||!env.MARKET_DATA_SECRET)return null;
@@ -28,10 +28,11 @@ export async function marketData(env,symbols,now=new Date(),fetcher=fetch) {
   return response.json();
  }
  const today=localClock(now).date;
- const start=new Date(now.getTime()-100*86400000).toISOString().slice(0,10);
+ const start=new Date(now.getTime()-230*86400000).toISOString().slice(0,10);
  const params={symbols:symbols.join(','),feed:'iex'};
- const [trades,first]=await Promise.all([
+ const [trades,intraday,first]=await Promise.all([
   get('/v2/stocks/trades/latest',params),
+  get('/v2/stocks/bars',{...params,timeframe:'5Min',start:today,end:now.toISOString(),adjustment:'split',limit:'10000',sort:'asc'}).then(r=>{if(r.next_page_token)throw Error('Intraday history truncated');return r;}),
   get('/v2/stocks/bars',{...params,timeframe:'1Day',start,end:today,adjustment:'split',limit:'10000',sort:'asc'}),
  ]);
  const bars={};let result=first;
@@ -41,5 +42,23 @@ export async function marketData(env,symbols,now=new Date(),fetcher=fetch) {
   if(page===2)throw Error('External history pagination exceeded');
   result=await get('/v2/stocks/bars',{...params,timeframe:'1Day',start,end:today,adjustment:'split',limit:'10000',sort:'asc',page_token:result.next_page_token});
  }
- return Object.fromEntries(symbols.map(symbol=>[symbol,{quote:validTrade(trades.trades?.[symbol],now),history:priorCloses(bars[symbol],today)}]));
+ return Object.fromEntries(symbols.map(symbol=>[symbol,{quote:validTrade(trades.trades?.[symbol],now),history:priorCloses(bars[symbol],env.MARKET_DATA_AS_OF_DATE||today),intraday:regularBars(intraday.bars?.[symbol],now)}]));
+}
+
+export function regularBars(bars,now) {
+ const today=localClock(now).date,seen=new Set();
+ return (bars||[]).filter(b=>{
+  const ms=Date.parse(b.t);if(!Number.isFinite(ms)||ms+300000>now.getTime())return false;
+  const c=localClock(new Date(ms));
+  if(c.date!==today||c.minute<570||c.minute>=960||![b.o,b.h,b.l,b.c].every(p=>Number.isFinite(p)&&p>0))return false;
+  if(seen.has(ms))throw Error('Duplicate intraday bar');seen.add(ms);return true;
+ }).sort((a,b)=>Date.parse(a.t)-Date.parse(b.t)).map(b=>({time:b.t,open:b.o,high:b.h,low:b.l,close:b.c,volume:b.v}));
+}
+export function trendSummary(history,price) {
+ if(!Array.isArray(history)||history.some(p=>!Number.isFinite(p)||p<=0)||!Number.isFinite(price)||price<=0)return null;
+ const returns={};
+ for(const [label,sessions] of [['1d',1],['5d',5],['1mo',21],['3mo',63],['6mo',126]])
+  returns[label]=history.length>=sessions?price/history.at(-sessions)-1:null;
+ const average=n=>history.length+1>=n?history.concat(price).slice(-n).reduce((a,b)=>a+b,0)/n:null;
+ return {returns,averages:{sma5:average(5),sma20:average(20),sma50:average(50)},historySessions:history.length};
 }
