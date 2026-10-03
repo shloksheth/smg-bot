@@ -1,5 +1,7 @@
 name: Stock Market Game
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       action:
@@ -17,7 +19,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   bot:
-    if: github.event_name == 'workflow_dispatch' || vars.BOT_ENABLED == 'true'
+    if: github.event_name != 'schedule' || vars.BOT_ENABLED == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
@@ -31,8 +33,8 @@ jobs:
       - name: Run bot
         run: node runner/main.js
         env:
-          RUN_ACTION: ${{ inputs.action || 'scheduled' }}
-          BOT_MODE: ${{ vars.BOT_MODE || 'observe' }}
+          RUN_ACTION: ${{ inputs.action || (github.event_name == 'push' && 'preview' || 'scheduled') }}
+          BOT_MODE: ${{ github.event_name == 'schedule' && vars.BOT_MODE || 'observe' }}
           BOT_ENABLED: ${{ vars.BOT_ENABLED || 'false' }}
           ADAPTER_VALIDATED: ${{ vars.ADAPTER_VALIDATED || 'false' }}
           SMG_USERNAME: ${{ secrets.SMG_USERNAME }}
@@ -42,7 +44,7 @@ jobs:
           D1_DATABASE_ID: 26a1eedc-126a-440e-b356-1e887eafbe9c
           MARKET_DATA_KEY: ${{ secrets.MARKET_DATA_KEY }}
           MARKET_DATA_SECRET: ${{ secrets.MARKET_DATA_SECRET }}
-      - name: Save private diagnostic report
+      - name: Save sanitized diagnostic report
         if: always()
         uses: actions/upload-artifact@v4
         with:
