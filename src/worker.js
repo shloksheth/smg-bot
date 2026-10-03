@@ -88,7 +88,7 @@ export async function run(env,manual=false,modeOverride,launchBrowser=puppeteer.
   for(const symbol of symbols) {
    const data=external?.[symbol],game=quotes[symbol];
    if(!data)continue;
-   const price=data.quote?.price||game?.price;
+   const price=data.quote?.price||game?.price||data.analysisPrice;
    report.marketAnalysis[symbol]={...trendSummary(data.history,price),source:data.source||'alpaca_iex',intraday:data.intraday||[],dailyCloses:data.history};
    if(game&&data.quote&&Math.abs(data.quote.price/game.price-1)>.05) {
     delete quotes[symbol];report.quoteChecks[symbol]={status:'blocked',reason:'External and game prices differ by more than 5%'};continue;

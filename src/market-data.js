@@ -93,7 +93,8 @@ export async function publicMarketData(env,symbols,now,fetcher) {
    try {
     const [daily,intraday]=await Promise.all([get(symbol,'1d','1y'),get(symbol,'5m','1d')]);
     const raw=validTrade({p:intraday.meta.regularMarketPrice,t:new Date(intraday.meta.regularMarketTime*1000).toISOString()},now);
-    out[symbol]={quote:raw?{...raw,source:'yahoo_public'}:null,history:priorCloses(daily.bars,asOf),intraday:regularBars(intraday.bars,now,asOf),source:'yahoo_public'};
+    const completed=daily.bars.find(b=>b.t.slice(0,10)===asOf&&Number.isFinite(b.c)&&b.c>0);
+    out[symbol]={analysisPrice:raw?.price||completed?.c,quote:raw?{...raw,source:'yahoo_public'}:null,history:priorCloses(daily.bars,asOf),intraday:regularBars(intraday.bars,now,asOf),source:'yahoo_public'};
    } catch {out[symbol]={quote:null,history:[],intraday:[],source:'yahoo_public',unavailable:true};}
   }
  }

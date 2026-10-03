@@ -178,13 +178,13 @@ export class SMG {
   // Finish the form's initial quote request before selecting another company.
   // Otherwise its delayed SPY response can overwrite the selected stock panel.
   this.quoteDiagnostics.step='wait_initial_stock_requests';
-  await this.page.waitForNetworkIdle({idleTime:500,timeout:10000});
+  await this.page.waitForFunction(()=>[...document.querySelectorAll('.stock-sub-row')].some(r=>r.querySelector('p')?.textContent.trim().startsWith('Last SMG Price')&&/\d/.test(r.lastElementChild?.textContent||'')),{timeout:10000});
   this.checkTime();
   this.quoteDiagnostics.step='find_symbol_input';
   await this.page.waitForSelector('#SymbolName',{visible:true,timeout:10000});
   await this.page.click('#SymbolName',{clickCount:3});
   await this.page.keyboard.press('Backspace');
-  await this.page.type('#SymbolName',symbol,{delay:100});
+  await this.page.type('#SymbolName',symbol==='MU'?'Micron':symbol,{delay:100});
   this.quoteDiagnostics.step='wait_lookup_results';
   await this.page.waitForFunction(s=>[...document.querySelectorAll('p')].some(e=>e.textContent.trim()===s),{timeout:10000},symbol);
   const company=await this.page.evaluate(s=>{const ps=[...document.querySelectorAll('p')],i=ps.findIndex(e=>e.textContent.trim()===s);return ps[i+1]?.textContent.trim();},symbol);
