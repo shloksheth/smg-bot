@@ -4,7 +4,7 @@ The Cloudflare Worker returned error 1102, a platform resource-limit failure. Th
 
 ## Current status
 
-27 automated tests pass. The migration is not yet deployed or remotely verified. Price lookups, real previews and an accepted order remain integration work. Live trading remains disabled. No promised profit or exact start time is implied.
+39 automated tests pass. Login, holdings, and two exit previews succeeded in a remote run. Several game quote selections and actual order acceptance remain integration work. Live trading remains disabled. No promised profit or exact start time is implied.
 
 ## Create the private repository
 
@@ -51,3 +51,17 @@ Do not enable `BOT_MODE=live` or `ADAPTER_VALIDATED=true` until real preview che
 * https://docs.github.com/en/actions/concepts/billing-and-usage
 * https://docs.github.com/en/actions/how-tos/troubleshoot-workflows
 * https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md
+
+## External trend data
+
+Add `MARKET_DATA_KEY` and `MARKET_DATA_SECRET` as GitHub Actions repository secrets using an Alpaca paper account's API key and secret. Only data.alpaca.markets is contacted by the adapter; it has no brokerage operations. Keep both values out of chat and source files. The free IEX feed covers one exchange, not the consolidated market.
+
+The report's `marketAnalysis` includes 1-day, 5-session, 21-session (approximately one month), 63-session and 126-session returns, 5/20/50-session moving averages, prior daily closing prices and today's completed regular-session five-minute OHLC candles. Insufficient history produces null metrics. Daily returns use the verified current price against completed historical sessions. Today's price is not a final closing price. Intraday candles are chart data; this update does not add a graphical dashboard.
+
+Entry decisions retain the existing 20-session momentum and moving-average conditions and now require five-session momentum in the same direction. Three- and six-month returns and intraday candles are diagnostic context, not additional trading rules. This strategy is not backtested or optimized. Missing keys leave external analysis disabled. Preview must confirm `externalDataConfigured: true` and usable `marketAnalysis` before external integration is considered working.
+
+## Latest hardening
+
+Daily and five-minute data responses are separated and tested with distinct payloads. Ticker lookup clears the input and uses exact ticker matching; company verification tolerates explicit security suffixes but rejects a different company. Live-path tests simulate accepted, ambiguous and interrupted submissions and confirm durable journaling before the click. These tests do not verify that the website accepts real orders. Unfunded covers are skipped; sales can continue, and their unfilled proceeds are never used to fund covers in the same run.
+
+Repository updates are performed through the signed-in GitHub browser because the connector rejects writes. The workflow runs a read-only preview on pushes to main; manual diagnostics use the latest trading session on weekends and before the open. Real submission acceptance and external-data integration remain unverified. External credentials are absent in the supplied run. External credentials must be present in repository secrets to activate the configured adapter. No real order has been submitted by this session. Public reports omit account balances, position sizes, preview budgets and confirmations; full reports are retained in D1. Keep live flags disabled until the website adapter is validated against the deployed code. Pending order cancellation is excluded because the game returns an error, as reported by the account owner.
