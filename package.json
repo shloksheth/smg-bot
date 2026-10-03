@@ -1,0 +1,1 @@
+{"name":"smg-cloud-bot","version":"0.1.0","private":true,"type":"module","scripts":{"test":"node --test test/*.test.js","deploy":"wrangler deploy","check":"wrangler deploy --dry-run"},"dependencies":{"@cloudflare/puppeteer":"1.1.0","puppeteer-core":"^25.12.0"},"devDependencies":{"wrangler":"^4.0.0"}}

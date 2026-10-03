@@ -1,0 +1,52 @@
+name: Stock Market Game
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: Read-only diagnostic
+        required: true
+        default: preview
+        type: choice
+        options: [observe, preview, status]
+  schedule:
+    - cron: '30 16,18,19 * * 1-5'
+permissions:
+  contents: read
+concurrency:
+  group: smg-game-account
+  cancel-in-progress: false
+jobs:
+  bot:
+    if: github.event_name == 'workflow_dispatch' || vars.BOT_ENABLED == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Run bot
+        run: node runner/main.js
+        env:
+          RUN_ACTION: ${{ inputs.action || 'scheduled' }}
+          BOT_MODE: ${{ vars.BOT_MODE || 'observe' }}
+          BOT_ENABLED: ${{ vars.BOT_ENABLED || 'false' }}
+          ADAPTER_VALIDATED: ${{ vars.ADAPTER_VALIDATED || 'false' }}
+          SMG_USERNAME: ${{ secrets.SMG_USERNAME }}
+          SMG_PASSWORD: ${{ secrets.SMG_PASSWORD }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_D1_TOKEN: ${{ secrets.CLOUDFLARE_D1_TOKEN }}
+          D1_DATABASE_ID: 26a1eedc-126a-440e-b356-1e887eafbe9c
+          MARKET_DATA_KEY: ${{ secrets.MARKET_DATA_KEY }}
+          MARKET_DATA_SECRET: ${{ secrets.MARKET_DATA_SECRET }}
+      - name: Save private diagnostic report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smg-report-${{ github.run_id }}
+          path: report.json
+          if-no-files-found: ignore
+          retention-days: 7
