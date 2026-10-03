@@ -7,7 +7,7 @@ for(const outcome of ['accepted','ambiguous','throw','unfunded'])test(`live subm
  const methods=['login','summary','holdings','pending','quote','preview','submit'],originals={};
  for(const m of methods)originals[m]=SMG.prototype[m];
  const statements=[];let submissions=0,pendingCalls=0,paused=false;
- const env={MODE:'live',ENABLED:'true',ADAPTER_VALIDATED:'true',GAME_END:'2026-12-04',SMG_USERNAME:'test',SMG_PASSWORD:'test',WATCHLIST:'CRML',DB:{prepare(sql){
+ const env={MARKET_DATA_PROVIDER:'none',MODE:'live',ENABLED:'true',ADAPTER_VALIDATED:'true',GAME_END:'2026-12-04',SMG_USERNAME:'test',SMG_PASSWORD:'test',WATCHLIST:'CRML',DB:{prepare(sql){
   const statement={bind(...args){statements.push({sql,args});return statement;},async first(){return null;},async all(){return {results:[]};},async run(){if(sql.includes("UPDATE settings SET value='true'"))paused=true;return {meta:{changes:1}};}};return statement;
  }}};
  SMG.prototype.login=async()=>{};
