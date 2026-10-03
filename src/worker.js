@@ -150,6 +150,8 @@ export async function run(env,manual=false,modeOverride,launchBrowser=puppeteer.
   report.status=mode==='live'?(report.orders.length?'submitted_pending_verification':'no_orders_submitted'):mode==='preview'?(report.orders.length?'previews_verified':'no_eligible_previews'):'observed';
  } catch (error) {
   // Do not log raw browser exceptions: a URL or protocol error can include secrets.
+  report.errorType=['TimeoutError','ProtocolError','TargetCloseError','Error','TypeError','ReferenceError','SyntaxError','RangeError'].includes(error?.name)?error.name:'Other';
+  report.failureKind=/detached|not connected/i.test(error?.message||'')?'detached_control':/context.*destroyed|navigation/i.test(error?.message||'')?'navigation_interrupted':/not.*function|not.*defined|undefined|null/i.test(error?.message||'')?'reader_programming_error':/timeout|timed out|exceeded/i.test(error?.message||'')?'timeout':'other';
   report.status='failed';report.warnings.push('Run failed safely. Review account and configuration before retrying.');
   const safeErrors=['Game rejected login credentials','Site verification blocks automation; no bypass attempted','Account identity or end-of-day game verification failed','Summary layout changed','Account detail missing','Account date missing','Game deadline changed','Account snapshot date does not match trading date','Invalid account date','Trade preview does not match intended order','Stale trade preview','Trade preview price discrepancy','Insufficient buying power in preview','Preview exceeds reserved opening budget','Control missing or ambiguous','Missing control','Quote layout changed','Quote date missing','Ticker lookup company missing','Invalid monetary value','No current verified quote for intended trade','Execution window ended before submission','Browser runtime budget reached'];
   report.errorCode=safeErrors.includes(error?.message)?error.message:(error?.name==='TimeoutError'||/Waiting failed:.*exceeded|timeout.*exceeded/i.test(error?.message||''))?'Page or control timed out':'Unclassified integration failure';
@@ -159,7 +161,7 @@ export async function run(env,manual=false,modeOverride,launchBrowser=puppeteer.
   if(report.stage==='holdings') {
    report.diagnostics=smg?.diagnostics;
    const known=['Pagination control missing or ambiguous','Holdings pagination stalled','Holdings page count exceeded','Holdings column count changed','Unsupported asset type','Invalid monetary value','Nonfinite monetary value','Invalid position','Position direction mismatch','Inconsistent position lots','Holdings do not reconcile with account totals','Browser runtime budget reached','Site verification blocks automation; no bypass attempted'];
-   report.errorCode=known.includes(error?.message)?error.message:error?.name==='TimeoutError'?'Holdings page or pagination timed out':'Unrecognized holdings reader error';
+   report.errorCode=known.includes(error?.message)?error.message:error?.name==='TimeoutError'?'Holdings page or pagination timed out':`Unrecognized holdings reader error (${report.errorType}/${report.failureKind})`;
   }
   if(mode==='live')await pause(env);
  } finally {

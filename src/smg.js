@@ -105,6 +105,7 @@ export class SMG {
  }
  async nextPage(before,kind) {
   this.checkTime();
+  if(kind==='holdings'&&this.diagnostics)this.diagnostics.step='locate_holdings_pagination';
   const handle=await this.page.evaluateHandle(()=>{
    const arrows=[...document.querySelectorAll('.google-visualization-table-page-next')];
    if(arrows.length!==1)throw Error('Pagination control missing or ambiguous');
@@ -113,9 +114,12 @@ export class SMG {
    if(button.getAttribute('aria-disabled')==='true'||button.classList.contains('goog-custom-button-disabled'))return null;
    return button;
   });
+  if(kind==='holdings'&&this.diagnostics)this.diagnostics.step='resolve_holdings_pagination_handle';
   const next=handle.asElement();
   if(!next){await handle.dispose();return false;}
+  if(kind==='holdings'&&this.diagnostics)this.diagnostics.step='click_holdings_next';
   try {await next.click();} finally {await handle.dispose();}
+  if(kind==='holdings'&&this.diagnostics)this.diagnostics.step='wait_holdings_page_change';
   await this.page.waitForFunction((before,kind)=>{
    const t=[...document.querySelectorAll('table')].find(t=>t.innerText.includes(kind==='holdings'?'Initial Trade Date':'Confirmation'));
    const rows=t?[...t.querySelectorAll('tr')].map(r=>[...r.querySelectorAll('td')].map(c=>c.innerText.trim())).filter(r=>r.length&&!/Ticker|Transaction Type/i.test(r[0])):null;
