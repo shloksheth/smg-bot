@@ -36,7 +36,7 @@ export class SMG {
    await this.page.waitForFunction(()=>{
     const text=document.body.innerText;
     return /Trade\s*Type\s*:/i.test(text)||/invalid\s+(account|team|password|user)|incorrect\s+(password|team|user)|login\s+failed|unable to log in|verify you are human|performing security verification|access denied|automated traffic/i.test(text);
-   },{timeout:20000});
+   },{timeout:35000});
   } catch(error) {waitError=error;}
   const state=await this.page.evaluate(()=>{
    const text=document.body.innerText;
@@ -51,9 +51,10 @@ export class SMG {
   await this.guard();
   if(state.credentialsRejected)throw Error('Game rejected login credentials');
   if(state.verificationPresent)throw Error('Site verification blocks automation; no bypass attempted');
-  if(waitError)throw waitError;
   this.loginDiagnostics.step='verify_account_identity';
   const verified=await this.page.evaluate(u=>document.body.innerText.includes(u)&&document.body.innerText.includes('ENDOFDAY'),username);
+  this.loginDiagnostics.accountIdentityVerified=verified;
+  if(waitError&&!verified)throw waitError;
   if(!verified)throw Error('Account identity or end-of-day game verification failed');
  }
  async summary() {
