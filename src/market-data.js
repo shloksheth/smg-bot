@@ -18,7 +18,8 @@ export function priorCloses(bars,today) {
  return [...dates].sort(([a],[b])=>a.localeCompare(b)).slice(-128).map(([,price])=>price);
 }
 export async function marketData(env,symbols,now=new Date(),fetcher=fetch) {
- if(!env.MARKET_DATA_KEY||!env.MARKET_DATA_SECRET)return null;
+ if(env.MARKET_DATA_PROVIDER==='none')return null;
+ if(!env.MARKET_DATA_KEY||!env.MARKET_DATA_SECRET)return publicMarketData(env,symbols,now,fetcher);
  if(symbols.length>20||symbols.some(s=>!/^[A-Z][A-Z0-9.-]{0,9}$/.test(s)))throw Error('Invalid external data symbols');
  const headers={'APCA-API-KEY-ID':env.MARKET_DATA_KEY,'APCA-API-SECRET-KEY':env.MARKET_DATA_SECRET};
  async function get(path,params) {
@@ -45,8 +46,8 @@ export async function marketData(env,symbols,now=new Date(),fetcher=fetch) {
  return Object.fromEntries(symbols.map(symbol=>[symbol,{quote:validTrade(trades.trades?.[symbol],now),history:priorCloses(bars[symbol],env.MARKET_DATA_AS_OF_DATE||today),intraday:regularBars(intraday.bars?.[symbol],now)}]));
 }
 
-export function regularBars(bars,now) {
- const today=localClock(now).date,seen=new Set();
+export function regularBars(bars,now,today=localClock(now).date) {
+ const seen=new Set();
  return (bars||[]).filter(b=>{
   const ms=Date.parse(b.t);if(!Number.isFinite(ms)||ms+300000>now.getTime())return false;
   const c=localClock(new Date(ms));
@@ -61,4 +62,42 @@ export function trendSummary(history,price) {
   returns[label]=history.length>=sessions?price/history.at(-sessions)-1:null;
  const average=n=>history.length+1>=n?history.concat(price).slice(-n).reduce((a,b)=>a+b,0)/n:null;
  return {returns,averages:{sma5:average(5),sma20:average(20),sma50:average(50)},historySessions:history.length};
+}
+
+// Public personal-use chart data needs no account. A rejected request is never
+// retried through another host, proxy, cookie flow or browser fingerprint.
+export function chartData(payload,symbol) {
+ const r=payload?.chart?.result;
+ if(payload?.chart?.error||r?.length!==1)throw Error('Public chart unavailable');
+ const chart=r[0],meta=chart.meta;
+ if(meta?.symbol!==symbol||meta.currency!=='USD'||!['EQUITY','ETF'].includes(meta.instrumentType)||meta.exchangeTimezoneName!=='America/New_York')throw Error('Public chart identity mismatch');
+ const q=chart.indicators?.quote;
+ if(q?.length!==1||!Array.isArray(chart.timestamp))throw Error('Public chart layout changed');
+ const bars=chart.timestamp.map((t,i)=>({t:new Date(t*1000).toISOString(),o:q[0].open?.[i],h:q[0].high?.[i],l:q[0].low?.[i],c:q[0].close?.[i],v:q[0].volume?.[i]}));
+ return {meta,bars};
+}
+export async function publicMarketData(env,symbols,now,fetcher) {
+ if(symbols.length>20||symbols.some(s=>!/^[A-Z][A-Z0-9.-]{0,9}$/.test(s)))throw Error('Invalid external data symbols');
+ const asOf=env.MARKET_DATA_AS_OF_DATE||localClock(now).date;
+ const signal=AbortSignal.timeout(45000),out={};let index=0;
+ async function get(symbol,interval,range) {
+  const url=new URL(`/v8/finance/chart/${encodeURIComponent(symbol)}`,'https://query1.finance.yahoo.com');
+  url.search=new URLSearchParams({interval,range,includePrePost:'false',events:'splits'}).toString();
+  const response=await fetcher(url,{signal:AbortSignal.any([signal,AbortSignal.timeout(10000)]),redirect:'error'});
+  if(!response.ok)throw Error('Public chart request rejected');
+  return chartData(await response.json(),symbol);
+ }
+ async function work() {
+  while(index<symbols.length&&!signal.aborted) {
+   const symbol=symbols[index++];
+   try {
+    const [daily,intraday]=await Promise.all([get(symbol,'1d','1y'),get(symbol,'5m','1d')]);
+    const raw=validTrade({p:intraday.meta.regularMarketPrice,t:new Date(intraday.meta.regularMarketTime*1000).toISOString()},now);
+    out[symbol]={quote:raw?{...raw,source:'yahoo_public'}:null,history:priorCloses(daily.bars,asOf),intraday:regularBars(intraday.bars,now,asOf),source:'yahoo_public'};
+   } catch {out[symbol]={quote:null,history:[],intraday:[],source:'yahoo_public',unavailable:true};}
+  }
+ }
+ await Promise.all(Array.from({length:Math.min(3,symbols.length)},work));
+ if(!Object.values(out).some(d=>d.history.length))throw Error('Public market data unavailable');
+ return out;
 }

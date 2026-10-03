@@ -84,12 +84,12 @@ export async function run(env,manual=false,modeOverride,launchBrowser=puppeteer.
   try {external=await marketData({...env,MARKET_DATA_AS_OF_DATE:quoteDate},symbols,clockNow());}
   catch {report.warnings.push('External market data unavailable; using verified game data only');}
   report.marketAnalysis={};
-  report.externalDataConfigured=Boolean(env.MARKET_DATA_KEY&&env.MARKET_DATA_SECRET);
+  report.externalDataConfigured=env.MARKET_DATA_PROVIDER!=='none';
   for(const symbol of symbols) {
    const data=external?.[symbol],game=quotes[symbol];
    if(!data)continue;
    const price=data.quote?.price||game?.price;
-   report.marketAnalysis[symbol]={...trendSummary(data.history,price),source:'alpaca_iex',intraday:data.intraday||[],dailyCloses:data.history};
+   report.marketAnalysis[symbol]={...trendSummary(data.history,price),source:data.source||'alpaca_iex',intraday:data.intraday||[],dailyCloses:data.history};
    if(game&&data.quote&&Math.abs(data.quote.price/game.price-1)>.05) {
     delete quotes[symbol];report.quoteChecks[symbol]={status:'blocked',reason:'External and game prices differ by more than 5%'};continue;
    }
