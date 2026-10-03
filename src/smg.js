@@ -22,13 +22,37 @@ export class SMG {
   const e=h.asElement();if(!e)throw Error('Missing control');await e.click();await h.dispose();
  }
  async login(username,password) {
+  this.loginDiagnostics={step:'open_login'};
   await this.goto('/login.html');
+  this.loginDiagnostics.step='find_login_fields';
   await this.page.waitForSelector('input[name="ACCOUNTNO"]',{visible:true,timeout:10000});
   await this.page.type('input[name="ACCOUNTNO"]',username);
   await this.page.type('input[name="USER_PIN"]',password);
+  this.loginDiagnostics.step='submit_login';
   await this.clickText('Log In','button,input[type="button"]');
-  await this.page.waitForFunction(()=>document.body.innerText.includes('Trade Type:'),{timeout:20000});
+  this.loginDiagnostics.step='wait_signed_in_page';
+  let waitError;
+  try {
+   await this.page.waitForFunction(()=>{
+    const text=document.body.innerText;
+    return /Trade\s*Type\s*:/i.test(text)||/invalid\s+(account|team|password|user)|incorrect\s+(password|team|user)|login\s+failed|unable to log in|verify you are human|performing security verification|access denied|automated traffic/i.test(text);
+   },{timeout:20000});
+  } catch(error) {waitError=error;}
+  const state=await this.page.evaluate(()=>{
+   const text=document.body.innerText;
+   return {
+    loginFormPresent:Boolean(document.querySelector('input[name="ACCOUNTNO"]')),
+    tradeTypePresent:/Trade\s*Type\s*:/i.test(text),
+    credentialsRejected:/invalid\s+(account|team|password|user)|incorrect\s+(password|team|user)|login\s+failed|unable to log in/i.test(text),
+    verificationPresent:/verify you are human|performing security verification|access denied|automated traffic/i.test(text),
+   };
+  });
+  Object.assign(this.loginDiagnostics,state);
   await this.guard();
+  if(state.credentialsRejected)throw Error('Game rejected login credentials');
+  if(state.verificationPresent)throw Error('Site verification blocks automation; no bypass attempted');
+  if(waitError)throw waitError;
+  this.loginDiagnostics.step='verify_account_identity';
   const verified=await this.page.evaluate(u=>document.body.innerText.includes(u)&&document.body.innerText.includes('ENDOFDAY'),username);
   if(!verified)throw Error('Account identity or end-of-day game verification failed');
  }

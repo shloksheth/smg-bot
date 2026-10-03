@@ -4,7 +4,7 @@ The Cloudflare Worker returned error 1102, a platform resource-limit failure. Th
 
 ## Current status
 
-26 automated tests pass. The migration is not yet deployed or remotely verified. Price lookups, real previews and an accepted order remain integration work. Live trading remains disabled. No promised profit or exact start time is implied.
+27 automated tests pass. The migration is not yet deployed or remotely verified. Price lookups, real previews and an accepted order remain integration work. Live trading remains disabled. No promised profit or exact start time is implied.
 
 ## Create the private repository
 
